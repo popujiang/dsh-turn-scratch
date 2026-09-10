@@ -1,0 +1,5 @@
+# dsh-turn-scratch bundle patch —— insert 一行:把本插件挂载进 profile 树。
+# 声明在 package.json 的 dsh.bundle.patch 中,使 `dsh plugin add` 可自动安装并激活。
+- insert:
+    - id: turn-scratch
+      name: dsh-turn-scratch

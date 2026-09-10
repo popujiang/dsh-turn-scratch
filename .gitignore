@@ -1,0 +1,9 @@
+# 本地安装用的依赖 junction,不进版本库
+node_modules/
+
+# 测试运行的临时工作区
+.ts-test-*/
+.probe.mjs
+
+# 插件自己的回收站
+.dsh-scratch-trash/
