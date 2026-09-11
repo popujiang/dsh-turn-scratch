@@ -14,11 +14,11 @@
 
 ## 安装
 
-dsh plugin --profile desktop add git+https://github.com/popujiang/dsh-turn-scratch.git
+dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.1.0"
 
 ## “小而美”
 
-插件体积很小，而且很多操作无感完成，让你放心。
+插件体积很小，让你放心。
 
 当然，真的是小而美：
 
@@ -26,7 +26,7 @@ dsh plugin --profile desktop add git+https://github.com/popujiang/dsh-turn-scrat
 
 为什么？因为它是全自动的。
 
-不过想调的话，配置项都在。
+不过想调的话，配置项都在——在 profile 的 `cordis.patch.yml` 里给 `turn-scratch` 行加 `config:` 即可。
 
 *但是你怕dsh误删？*
 
@@ -36,11 +36,15 @@ dsh plugin --profile desktop add git+https://github.com/popujiang/dsh-turn-scrat
 
 **它并不是直接删文件**
 
-每轮结束，临时文件全都会先被挪进一个回收文件夹（不是你电脑里的回收站），再逐个判断：
+每轮结束，临时文件全都会先被挪进工作区里的一个回收文件夹（不是你电脑里的回收站），再逐个判断：
+
+```
+<工作区>/.dsh-scratch-trash/<会话>/turn-<轮次>/
+```
 
 能确定的，代码直接决定去留。
 
-拿不准的，才交给 agent 建议。
+拿不准的，才交给一次独立的模型调用判断。
 
 真正的删除，只在你手动清空时发生。
 
@@ -55,17 +59,17 @@ dsh plugin --profile desktop add git+https://github.com/popujiang/dsh-turn-scrat
 | scratch_status | 看现在扣着什么、已还原什么 |
 | scratch_restore | 手动把一个文件捞回工作区 |
 | scratch_purge | 清空隔离区（真删） |
-| scratch_mark | 标记某个文件不要动 |
+| scratch_mark | 告诉 dsh 某个文件是一次性脚手架，可以收走 |
 
 ## 安全
 
 默认只隔离，不删除
 
-拿不准的文件还是会留着，不会误杀
+拿不准的会被还回工作区，不会误删
 
-agent 只能建议还原，不能替你删除，最后文件的生杀大权在你手里
+模型只能还原、不能删除，最后文件的生杀大权在你手里
 
-插件经过多轮测试，无误删记录。最坏的情况是文件被隔离，随时可还原，请食客放心食用。
+三套测试共 101 项断言全绿。最坏的情况是文件被隔离，随时可还原，请放心食用。
 
 ## 其他
 
