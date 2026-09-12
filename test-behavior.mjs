@@ -478,6 +478,59 @@ console.log("\n[14] 决策一致性断言:preResolved 与最终结果必须一�
     : bad("正常落盘", JSON.stringify(mc.review));
 }
 
+
+console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归档进桶");
+{
+  const h = harness({ aiReview: { enabled: false } }, "h15");
+  await rm(h.root, { recursive: true, force: true }); await mkdir(h.root, { recursive: true });
+  const wdTool = toolOf(h, "scratch_workdir");
+  wdTool !== undefined ? ok("scratch_workdir 已注册") : bad("工具注册", "未找到");
+
+  // 回合【进行中】调用 —— 和真实用法一致,不依赖任何回合结束后的状态
+  await turn(h, 1, "干活", async () => {
+    const wd = await wdTool.execute({}, {});
+    wd.enabled === true && wd.relative === ".dsh-scratch-trash/work"
+      ? ok("回合进行中即可拿到稳定路径 " + wd.relative)
+      : bad("workdir 返回", JSON.stringify(wd));
+    existsSync(join(h.root, ".dsh-scratch-trash", "work"))
+      ? ok("暂存区目录已按需创建")
+      : bad("目录创建", "不存在");
+    // 中间产物写进暂存区(其中一个刻意起会命中 patterns 的名字)
+    await put(h.root, ".dsh-scratch-trash/work/helper.mjs", "x");
+    await put(h.root, ".dsh-scratch-trash/work/tmp_would_match.bak", "y");
+  });
+
+  !existsSync(join(h.root, ".dsh-scratch-trash/work/helper.mjs"))
+    ? ok("回合末暂存区被清空")
+    : bad("归档", "暂存区还有残留");
+  existsSync(join(h.root, ".dsh-scratch-trash/work"))
+    ? ok("暂存区目录本身保留(下一轮路径不变)")
+    : bad("目录保留", "被一起搬走了");
+  const m = await readManifest(h, 1);
+  const workItems = m.items.filter((i) => i.kind === "workdir");
+  workItems.length === 2
+    ? ok("两条都记为 kind=workdir")
+    : bad("kind", JSON.stringify(m.items.map((i) => i.path + ":" + i.kind)));
+  m.items.every((i) => i.kind === "workdir")
+    ? ok("未走通用候选路径(没有重复收一遍)")
+    : bad("重复收集", JSON.stringify(m.items.map((i) => i.kind)));
+  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", ".dsh-scratch-trash/work/helper.mjs"))
+    ? ok("内容进了本轮桶,manifest 可追溯")
+    : bad("入桶", "没找到");
+
+  const back = await toolOf(h, "scratch_restore").execute({ workspace: h.root }, {});
+  back.restored.length === 2 ? ok("scratch_restore 能把它们放回暂存区") : bad("还原", JSON.stringify(back));
+  existsSync(join(h.root, ".dsh-scratch-trash/work/helper.mjs"))
+    ? ok("还原语义自洽:放回 work/,不是工作区根")
+    : bad("还原位置", "没回到 work/");
+
+  const h2 = harness({ aiReview: { enabled: false }, workDir: "" }, "h15b");
+  await rm(h2.root, { recursive: true, force: true }); await mkdir(h2.root, { recursive: true });
+  const off = await toolOf(h2, "scratch_workdir").execute({}, {});
+  off.enabled === false ? ok("workDir 为空时工具报告未启用") : bad("关闭开关", JSON.stringify(off));
+  !existsSync(join(h2.root, ".dsh-scratch-trash")) ? ok("关闭后不创建任何目录") : bad("关闭开关", "仍建了目录");
+}
+
 for (const root of ROOTS) await rm(root, { recursive: true, force: true });
 
 console.log("\n" + (fail === 0 ? "ALL PASS (" + pass + ")" : pass + " passed, " + fail + " FAILED"));

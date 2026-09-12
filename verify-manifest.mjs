@@ -37,7 +37,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Allowed value sets, referenced from the schema as "enum:<name>". */
 const ENUMS = {
-	itemKind: ["agent-marked", "created-this-turn", "scratch-dir-changed", "orphan-store"],
+	itemKind: ["agent-marked", "created-this-turn", "scratch-dir-changed", "orphan-store", "workdir"],
 	outcome: ["completed", "skipped-no-route", "failed", "unparsed", "disabled"],
 	action: ["keep", "restore"],
 	restoredBy: ["review", "tool"]

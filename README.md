@@ -14,7 +14,7 @@
 
 ## 安装
 
-dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.1.0"
+dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.2.0"
 
 ## “小而美”
 
@@ -52,6 +52,28 @@ dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scra
 
 *所以最坏的情况其实是文件被隔离开来，而不是被误删*
 
+## 干活干到一半，工作区就已经乱了？
+
+上面说的，都是**回合结束**时的收尾。
+
+可一个长回合干到一半，中间产物其实早就散在工作区里了 —— 等它结束才动手，中间那段时间你还是得对着一堆不认识的文件发呆。
+
+所以插件给 dsh 备了一块**暂存区**：
+
+```
+<工作区>/.dsh-scratch-trash/work/
+```
+
+中间产物直接写这儿，工作区**从第一秒就是干净的**。
+
+*那这些文件就不管了？*
+
+当然不是。回合结束时，它们会被**搬进本轮的回收文件夹** —— 照样有记录、照样能复核、照样随时能还原。然后暂存区清空，下一轮又是一个干净的工作台。
+
+路径固定不变，不用每轮重新找。
+
+> 不想要这块区域？设成空就行：`workDir: ""`
+
 ## 包含的工具及其作用
 
 | 工具 | 作用 |
@@ -60,6 +82,7 @@ dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scra
 | scratch_restore | 手动把一个文件捞回工作区 |
 | scratch_purge | 清空隔离区（真删） |
 | scratch_mark | 告诉 dsh 某个文件是一次性脚手架，可以收走 |
+| scratch_workdir | 拿到一个暂存区路径，中间产物写那儿，不弄脏工作区 |
 
 ## 安全
 
