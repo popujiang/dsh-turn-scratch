@@ -14,7 +14,7 @@
 
 ## 安装
 
-dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.2.0"
+dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.2.1"
 
 ## “小而美”
 
