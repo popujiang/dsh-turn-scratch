@@ -529,6 +529,37 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
   const off = await toolOf(h2, "scratch_workdir").execute({}, {});
   off.enabled === false ? ok("workDir 为空时工具报告未启用") : bad("关闭开关", JSON.stringify(off));
   !existsSync(join(h2.root, ".dsh-scratch-trash")) ? ok("关闭后不创建任何目录") : bad("关闭开关", "仍建了目录");
+
+  // ── 死循环回归 ──────────────────────────────────────────────────
+  // 线上实测:暂存区里的二进制文件(如 PNG)会被 previewOf 判为 binary,进而被
+  // "无内容证据必须还原"的盲区规则还原回 work/ —— 而归档步骤下一轮又把它收走,
+  // 如此往复,每轮烧一次模型调用。这条回归把它钉死。
+  const h3 = harness({ aiReview: { enabled: true } }, "h15c");
+  await rm(h3.root, { recursive: true, force: true }); await mkdir(h3.root, { recursive: true });
+  await mkdir(join(h3.root, ".dsh-scratch-trash", "work"), { recursive: true });
+  await turn(h3, 1, "干活", async () => {
+    const cid = writeVia(h3, ".dsh-scratch-trash/work/probe.bin", "x");
+    await writeFile(join(h3.root, ".dsh-scratch-trash/work/probe.bin"), Buffer.from([0x41, 0x00, 0x42]));
+    okResult(h3, cid);
+  });
+  !existsSync(join(h3.root, ".dsh-scratch-trash/work/probe.bin"))
+    ? ok("暂存区二进制文件未被还原(死循环已堵)")
+    : bad("死循环回归", "又被还原回 work/,下一轮会重收");
+  const m3 = await readManifest(h3, 1);
+  m3.review.preResolved.some((p) => p.action === "keep" && String(p.reason).includes("暂存区"))
+    ? ok("preResolved 记为 keep(暂存区约定,不走盲区)")
+    : bad("preResolved", JSON.stringify(m3.review.preResolved));
+  m3.review.modelConsulted === false
+    ? ok("未咨询模型(暂存区条目不进复核,不再每轮烧调用)")
+    : bad("modelConsulted", "竟然问了模型");
+
+  // 第二轮:work/ 已空,不该再产生新的暂存区条目 —— 循环终止的直接证据
+  await turn(h3, 2, "继续", async () => {});
+  let turn2Items = 0;
+  try { turn2Items = (await readManifest(h3, 2)).items.length; } catch { turn2Items = 0; }
+  turn2Items === 0
+    ? ok("第二轮不再收到任何暂存区条目(循环确认终止)")
+    : bad("循环未终止", "第二轮又收了 " + turn2Items + " 项");
 }
 
 for (const root of ROOTS) await rm(root, { recursive: true, force: true });

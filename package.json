@@ -1,6 +1,6 @@
 {
   "name": "dsh-turn-scratch",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "DSH plugin: quarantine each turn's scratch artifacts into a workspace trash directory instead of deleting them",
   "main": "lib/index.js",
