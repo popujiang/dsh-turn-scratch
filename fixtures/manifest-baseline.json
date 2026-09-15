@@ -4,17 +4,25 @@
   "turn": 21,
   "at": "2026-09-10T15:44:43.037Z",
   "workspace": "D:/share",
-  "restoreHint": "把这些文件移回 workspace 下的原路径即可还原(path 字段)。",
+  "store": "C:/Users/1/.dsh/turn-scratch/share-d4a5e08c",
+  "restoreHint": "按 items[].path 还原:origin 为 workspace(默认)时相对 workspace,为 store 时相对 store。桶内文件位置看 items[].storedAt,它始终相对 store。",
   "items": [
     {
       "path": "probe_blind.bak",
       "kind": "agent-marked",
-      "storedAt": ".dsh-scratch-trash/session-ff6a6551-2970-486d-bdd9-6720d44129af/turn-21/probe_blind.bak"
+      "storedAt": "session-ff6a6551-2970-486d-bdd9-6720d44129af/turn-21/probe_blind.bak"
     },
     {
       "path": ".dsh-edit-review.json",
       "kind": "orphan-store",
-      "storedAt": ".dsh-scratch-trash/session-ff6a6551-2970-486d-bdd9-6720d44129af/turn-21/.dsh-edit-review.json"
+      "storedAt": "session-ff6a6551-2970-486d-bdd9-6720d44129af/turn-21/.dsh-edit-review.json"
+    },
+    {
+      "path": "work/ascii_view.py",
+      "kind": "workdir",
+      "storedAt": "session-ff6a6551-2970-486d-bdd9-6720d44129af/turn-21/work/ascii_view.py",
+      "origin": "store",
+      "moved": "copy"
     }
   ],
   "review": {
@@ -41,6 +49,11 @@
         "path": ".dsh-edit-review.json",
         "action": "keep",
         "reason": "显式用户配置"
+      },
+      {
+        "path": "work/ascii_view.py",
+        "action": "keep",
+        "reason": "暂存区约定"
       }
     ],
     "modelConsulted": false

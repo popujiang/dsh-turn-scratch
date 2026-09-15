@@ -40,7 +40,14 @@ const ENUMS = {
 	itemKind: ["agent-marked", "created-this-turn", "scratch-dir-changed", "orphan-store", "workdir"],
 	outcome: ["completed", "skipped-no-route", "failed", "unparsed", "disabled"],
 	action: ["keep", "restore"],
-	restoredBy: ["review", "tool"]
+	restoredBy: ["review", "tool"],
+	/**
+	 * What `path` is relative to, and therefore where a restore puts the item
+	 * back. Absent means "workspace", which is what every legacy item is.
+	 */
+	itemOrigin: ["workspace", "store"],
+	/** How the item physically moved. Absent means the atomic-rename fast path. */
+	itemMoved: ["copy"]
 };
 
 /**
@@ -74,12 +81,19 @@ const SCHEMA = {
 			items: { of: "@item", key: "path" }
 		},
 		optional: {
-			review: "@review"
+			review: "@review",
+			/** Absolute store root. Absent in manifests written before it could move. */
+			store: "string"
 		}
 	},
 	item: {
 		required: { path: "string", kind: "enum:itemKind", storedAt: "string" },
-		optional: { restoredAt: "iso", restoredBy: "enum:restoredBy" }
+		optional: {
+			restoredAt: "iso",
+			restoredBy: "enum:restoredBy",
+			origin: "enum:itemOrigin",
+			moved: "enum:itemMoved"
+		}
 	},
 	review: {
 		required: {

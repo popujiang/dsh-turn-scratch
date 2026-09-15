@@ -1,5 +1,10 @@
 # dsh-turn-scratch bundle patch —— insert 一行:把本插件挂载进 profile 树。
 # 声明在 package.json 的 dsh.bundle.patch 中,使 `dsh plugin add` 可自动安装并激活。
+#
+# 隔离存储默认在 ~/.dsh/turn-scratch/<工作区指纹>/,即工作区之外 —— 插件自己
+# 不该往它要保护的那个工作区里堆东西。想改位置就在下面那条 insert 上加 config:
+#   storeRoot: "workspace"          回到旧行为(工作区内的 .dsh-scratch-trash)
+#   storeRoot: "D:/.dsh-turn-scratch"  指定路径;与工作区同盘时搬运是瞬时改名
 - insert:
     - id: turn-scratch
       name: dsh-turn-scratch

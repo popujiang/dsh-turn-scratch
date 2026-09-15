@@ -1,4 +1,4 @@
-import { mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { mkdir, writeFile, rm, readFile, readdir, rmdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,8 +6,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN = join(HERE, "lib", "index.js");
-const { apply } = await import(pathToFileURL(PLUGIN).href);
+const { apply, storeRootFor } = await import(pathToFileURL(PLUGIN).href);
 const ROOTS = [];
+// Stores live OUTSIDE the workspace now, so cleaning up only ROOTS would leave
+// test stores accumulating in the real ~/.dsh/turn-scratch/.
+const STORES = [];
 
 // 捕获插件日志用于确定性等待。固定 sleep 会在机器繁忙时产生竞态 —— 实测出现过
 // 同一份代码两次运行结果相反的情况,所以改为轮询插件的终态日志行。
@@ -65,8 +68,11 @@ function harness(config, label, opts) {
   apply(ctx, { debug: true, ...config });
   if (typeof st.handler !== "function") { bad(label + " 订阅", "never subscribed"); }
   const session = { id: "s" + seq, header: { cwd: root } };
+  // Same derivation the plugin uses, so a test can never drift from it.
+  const store = storeRootFor(root, config ? config.storeRoot : undefined);
+  STORES.push(store);
   return {
-    root, st, session, label,
+    root, store, st, session, label,
     emit: (type, data) => st.handler(session, { type, data, seq: 1 }),
     settle: (turnNo) => waitForTurn(turnNo)
   };
@@ -146,7 +152,7 @@ console.log("\n[4] AI 复核:还原误判(核心理念 —— AI 有还原权)")
     okResult(h, writeVia(h, "tmp_important.docx", "这是一份 31 页的课程设计报告正文")); await put(h.root, "tmp_important.docx", "这是一份 31 页的课程设计报告正文");
   });
   present(h.root, "tmp_important.docx", "AI 判定误判 -> 文件被还原");
-  const m = JSON.parse(await readFile(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "manifest.json"), "utf8"));
+  const m = JSON.parse(await readFile(join(h.store, h.session.id, "turn-1", "manifest.json"), "utf8"));
   (m.review && m.review.restored.includes("tmp_important.docx")) ? ok("manifest 记录了还原") : bad("manifest.review", JSON.stringify(m.review));
 }
 
@@ -163,7 +169,7 @@ console.log("\n[5] AI 复核:维持隔离 + 越权动作被忽略");
     okResult(h, writeVia(h, "tmp_helper.mjs", "x")); await put(h.root, "tmp_helper.mjs", "x");
   });
   gone(h.root, "tmp_helper.mjs", "AI 说 keep -> 保持隔离");
-  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "tmp_helper.mjs"))
+  existsSync(join(h.store, h.session.id, "turn-1", "tmp_helper.mjs"))
     ? ok("AI 的 delete 越权请求被忽略,文件仍在回收站(未被销毁)")
     : bad("越权防护", "文件被 AI 的 delete 动作销毁了");
 }
@@ -177,7 +183,7 @@ console.log("\n[6] fail-safe:LLM 挂掉时必须保持全部隔离,绝不能反�
   await turn(h, 1, "干活", async () => {
     okResult(h, writeVia(h, "tmp_x.mjs", "x")); await put(h.root, "tmp_x.mjs", "x");
   });
-  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "tmp_x.mjs"))
+  existsSync(join(h.store, h.session.id, "turn-1", "tmp_x.mjs"))
     ? ok("LLM 抛错 -> 条目安全留在回收站")
     : bad("fail-safe", "LLM 挂掉后条目丢失");
 }
@@ -191,7 +197,7 @@ console.log("\n[7] fail-safe:AI 输出无法解析时同样保持隔离");
   await turn(h, 1, "干活", async () => {
     okResult(h, writeVia(h, "tmp_y.mjs", "y")); await put(h.root, "tmp_y.mjs", "y");
   });
-  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "tmp_y.mjs"))
+  existsSync(join(h.store, h.session.id, "turn-1", "tmp_y.mjs"))
     ? ok("垃圾输出 -> 条目安全留在回收站")
     : bad("解析失败兜底", "条目丢失");
 }
@@ -209,7 +215,7 @@ console.log("\n[8] 复核只在真有东西进回收站时才触发(事件驱动
 // ─────────────────────────────────────────────────────────────
 const toolOf = (h, name) => h.st.tools.find((d) => d.name === name);
 const readManifest = async (h, turn) =>
-  JSON.parse(await readFile(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-" + turn, "manifest.json"), "utf8"));
+  JSON.parse(await readFile(join(h.store, h.session.id, "turn-" + turn, "manifest.json"), "utf8"));
 
 console.log("\n[9] 复核结果必须永远写进 manifest —— 不允许静默");
 {
@@ -265,7 +271,7 @@ console.log("\n[10] 硬约束一:孤儿库是用户显式配置,代码定案,模
   h.st.reply = JSON.stringify({ decisions: [{ path: "data.store", action: "restore", reason: "看着像有用数据" }] });
   await turn(h, 1, "干活", async () => {});
   gone(h.root, "data.store", "文件没被放回工作区");
-  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "data.store"))
+  existsSync(join(h.store, h.session.id, "turn-1", "data.store"))
     ? ok("条目仍安全留在回收站")
     : bad("硬约束", "孤儿库条目被放走了");
   h.st.lastCall === undefined
@@ -367,9 +373,9 @@ console.log("\n[12] 人工裁决工具");
   p2.refused !== undefined ? ok("未收窄范围时拒绝") : bad("purge 范围守卫", JSON.stringify(p2));
   const p3 = await purgeTool.execute({ workspace: h.root, confirm: true, all: true }, {});
   p3.removed.length === 1 ? ok("scratch_purge 显式确认后清空 1 个桶") : bad("purge", JSON.stringify(p3));
-  !existsSync(join(h.root, ".dsh-scratch-trash"))
+  !existsSync(join(h.store))
     ? ok("purge 后不留空壳(桶 + 空父目录 + 空回收站根一并清理)")
-    : bad("空目录残留", "purge 后 .dsh-scratch-trash 仍存在");
+    : bad("空目录残留", "purge 后存储根仍存在");
 }
 
 console.log("\n[13] 日志必须走宿主 ctx.logger(console 在 DSH Desktop 里无人可见)");
@@ -415,7 +421,7 @@ console.log("\n[14] 决策一致性断言:preResolved 与最终结果必须一�
     okResult(h, cid);
     h.emit("turn/end", { turn: 1 });
   };
-  const manifestPathOf = (h) => join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", "manifest.json");
+  const manifestPathOf = (h) => join(h.store, h.session.id, "turn-1", "manifest.json");
 
   // ── A. throw 模式:断言必须抛出去,不能被吞成一条 warn ──
   const rejections = [];
@@ -489,21 +495,21 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
   // 回合【进行中】调用 —— 和真实用法一致,不依赖任何回合结束后的状态
   await turn(h, 1, "干活", async () => {
     const wd = await wdTool.execute({}, {});
-    wd.enabled === true && wd.relative === ".dsh-scratch-trash/work"
+    wd.enabled === true && wd.relative === "work"
       ? ok("回合进行中即可拿到稳定路径 " + wd.relative)
       : bad("workdir 返回", JSON.stringify(wd));
-    existsSync(join(h.root, ".dsh-scratch-trash", "work"))
+    existsSync(join(h.store, "work"))
       ? ok("暂存区目录已按需创建")
       : bad("目录创建", "不存在");
     // 中间产物写进暂存区(其中一个刻意起会命中 patterns 的名字)
-    await put(h.root, ".dsh-scratch-trash/work/helper.mjs", "x");
-    await put(h.root, ".dsh-scratch-trash/work/tmp_would_match.bak", "y");
+    await put(h.store, "work/helper.mjs", "x");
+    await put(h.store, "work/tmp_would_match.bak", "y");
   });
 
-  !existsSync(join(h.root, ".dsh-scratch-trash/work/helper.mjs"))
+  !existsSync(join(h.store, "work/helper.mjs"))
     ? ok("回合末暂存区被清空")
     : bad("归档", "暂存区还有残留");
-  existsSync(join(h.root, ".dsh-scratch-trash/work"))
+  existsSync(join(h.store, "work"))
     ? ok("暂存区目录本身保留(下一轮路径不变)")
     : bad("目录保留", "被一起搬走了");
   const m = await readManifest(h, 1);
@@ -514,13 +520,13 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
   m.items.every((i) => i.kind === "workdir")
     ? ok("未走通用候选路径(没有重复收一遍)")
     : bad("重复收集", JSON.stringify(m.items.map((i) => i.kind)));
-  existsSync(join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1", ".dsh-scratch-trash/work/helper.mjs"))
+  existsSync(join(h.store, h.session.id, "turn-1", "work/helper.mjs"))
     ? ok("内容进了本轮桶,manifest 可追溯")
     : bad("入桶", "没找到");
 
   const back = await toolOf(h, "scratch_restore").execute({ workspace: h.root }, {});
   back.restored.length === 2 ? ok("scratch_restore 能把它们放回暂存区") : bad("还原", JSON.stringify(back));
-  existsSync(join(h.root, ".dsh-scratch-trash/work/helper.mjs"))
+  existsSync(join(h.store, "work/helper.mjs"))
     ? ok("还原语义自洽:放回 work/,不是工作区根")
     : bad("还原位置", "没回到 work/");
 
@@ -528,7 +534,7 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
   await rm(h2.root, { recursive: true, force: true }); await mkdir(h2.root, { recursive: true });
   const off = await toolOf(h2, "scratch_workdir").execute({}, {});
   off.enabled === false ? ok("workDir 为空时工具报告未启用") : bad("关闭开关", JSON.stringify(off));
-  !existsSync(join(h2.root, ".dsh-scratch-trash")) ? ok("关闭后不创建任何目录") : bad("关闭开关", "仍建了目录");
+  !existsSync(join(h2.store)) ? ok("关闭后不创建任何目录") : bad("关闭开关", "仍建了目录");
 
   // ── 死循环回归 ──────────────────────────────────────────────────
   // 线上实测:暂存区里的二进制文件(如 PNG)会被 previewOf 判为 binary,进而被
@@ -536,13 +542,13 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
   // 如此往复,每轮烧一次模型调用。这条回归把它钉死。
   const h3 = harness({ aiReview: { enabled: true } }, "h15c");
   await rm(h3.root, { recursive: true, force: true }); await mkdir(h3.root, { recursive: true });
-  await mkdir(join(h3.root, ".dsh-scratch-trash", "work"), { recursive: true });
+  await mkdir(join(h3.store, "work"), { recursive: true });
   await turn(h3, 1, "干活", async () => {
-    const cid = writeVia(h3, ".dsh-scratch-trash/work/probe.bin", "x");
-    await writeFile(join(h3.root, ".dsh-scratch-trash/work/probe.bin"), Buffer.from([0x41, 0x00, 0x42]));
+    const cid = writeVia(h3, join(h3.store, "work/probe.bin"), "x");
+    await writeFile(join(h3.store, "work/probe.bin"), Buffer.from([0x41, 0x00, 0x42]));
     okResult(h3, cid);
   });
-  !existsSync(join(h3.root, ".dsh-scratch-trash/work/probe.bin"))
+  !existsSync(join(h3.store, "work/probe.bin"))
     ? ok("暂存区二进制文件未被还原(死循环已堵)")
     : bad("死循环回归", "又被还原回 work/,下一轮会重收");
   const m3 = await readManifest(h3, 1);
@@ -562,7 +568,141 @@ console.log("\n[15] 工作暂存区:中间产物不落地工作区,回合末归�
     : bad("循环未终止", "第二轮又收了 " + turn2Items + " 项");
 }
 
+// ─────────────────────────────────────────────────────────────
+console.log("\n[16] 存储必须在工作区之外(插件不能弄脏它要保护的那个工作区)");
+{
+  const h = harness({ aiReview: { enabled: false } }, "h16");
+  await rm(h.root, { recursive: true, force: true }); await mkdir(h.root, { recursive: true });
+  let wd;
+  await turn(h, 1, "干活", async () => {
+    // Inside the turn on purpose: the tool resolves its workspace from the last
+    // sweep, exactly as it does in real use.
+    wd = await toolOf(h, "scratch_workdir").execute({}, {});
+    okResult(h, writeVia(h, "tmp_thing.mjs", "x")); await put(h.root, "tmp_thing.mjs", "x");
+  });
+  existsSync(join(h.store, h.session.id, "turn-1", "manifest.json"))
+    ? ok("隔离桶建在存储根下")
+    : bad("桶位置", "没找到 " + h.store);
+  !existsSync(join(h.root, ".dsh-scratch-trash"))
+    ? ok("工作区里不再出现 .dsh-scratch-trash")
+    : bad("工作区被弄脏", "旧回收站目录又出现了");
+  !h.store.startsWith(h.root)
+    ? ok("存储根确实在工作区之外: " + h.store)
+    : bad("存储位置", "还在工作区里");
+  wd.enabled === true && wd.relative === "work" && wd.path.startsWith(h.store.replace(/\\/g, "/"))
+    ? ok("暂存区同样落在存储根下(relative=" + wd.relative + ")")
+    : bad("暂存区位置", JSON.stringify(wd));
+  const left = (await readdir(h.root)).filter((n) => n.length > 0);
+  left.length === 0
+    ? ok("回合结束后工作区完全为空")
+    : bad("工作区残留", JSON.stringify(left));
+}
+
+// ─────────────────────────────────────────────────────────────
+// 跨卷是本次改动里唯一会删除原始文件的代码路径,必须真跑一遍。
+// 单卷机器上 EXDEV 永远不会发生,所以用 __faults 强制走复制分支。
+console.log("\n[17] 跨卷搬运(EXDEV):复制 → 校验 → 落库 → 删源");
+{
+  const h = harness({ aiReview: { enabled: false }, __faults: ["cross-volume"] }, "h17");
+  await rm(h.root, { recursive: true, force: true }); await mkdir(h.root, { recursive: true });
+  // The files must appear DURING the turn: the plugin only collects paths a
+  // first-party write actually created this turn.
+  await turn(h, 1, "干活", async () => {
+    const cid = writeVia(h, "tmp_tree", "x");
+    okResult(h, cid);
+    await put(h.root, "tmp_tree/a/b/deep.txt", "deep-body");
+    await put(h.root, "tmp_tree/top.txt", "top-body");
+  });
+  const m = await readManifest(h, 1);
+  const item = m.items.find((i) => i.path === "tmp_tree");
+  item !== undefined ? ok("整个目录被收集") : bad("收集", JSON.stringify(m.items.map((i) => i.path)));
+  item !== undefined && item.moved === "copy"
+    ? ok("manifest 记下 moved=copy(走的是复制,不是改名)")
+    : bad("moved 标记", JSON.stringify(item));
+  !existsSync(join(h.root, "tmp_tree"))
+    ? ok("源目录已删除(只在复制校验通过之后)")
+    : bad("源残留", "原目录还在");
+  existsSync(join(h.store, h.session.id, "turn-1", "tmp_tree/a/b/deep.txt"))
+    ? ok("递归复制完整(深层文件也过去了)")
+    : bad("内容完整", "深层文件缺失");
+  const deep = existsSync(join(h.store, h.session.id, "turn-1", "tmp_tree/a/b/deep.txt"))
+    ? await readFile(join(h.store, h.session.id, "turn-1", "tmp_tree/a/b/deep.txt"), "utf8") : "";
+  deep === "deep-body" ? ok("入库内容逐字节一致") : bad("内容", JSON.stringify(deep));
+
+  const back = await toolOf(h, "scratch_restore").execute({ workspace: h.root }, {});
+  back.restored.length === 1 ? ok("跨卷还原成功") : bad("还原", JSON.stringify(back));
+  const backDeep = existsSync(join(h.root, "tmp_tree/a/b/deep.txt"))
+    ? await readFile(join(h.root, "tmp_tree/a/b/deep.txt"), "utf8") : "";
+  backDeep === "deep-body" ? ok("还原后内容与来源一致") : bad("还原内容", JSON.stringify(backDeep));
+  !existsSync(join(h.store, h.session.id, "turn-1", "tmp_tree"))
+    ? ok("还原后桶里不留副本")
+    : bad("桶残留", "还原后源仍在桶里");
+}
+
+// ─────────────────────────────────────────────────────────────
+// 迁移前的 manifest 里 storedAt 是"工作区相对"且带旧前缀。存储搬家后这类记录
+// 必须仍能还原,否则旧桶会变成一堆"源缺失"的假象。
+console.log("\n[18] 旧格式 storedAt(工作区相对)仍可还原");
+{
+  const legacyManifest = (sessionId, name, workspace) => JSON.stringify({
+    plugin: "dsh-turn-scratch",
+    session: sessionId,
+    turn: 1,
+    at: new Date().toISOString(),
+    workspace: workspace.replace(/\\/g, "/"),
+    restoreHint: "旧格式:storedAt 是工作区相对路径",
+    items: [{
+      path: name,
+      kind: "created-this-turn",
+      storedAt: ".dsh-scratch-trash/" + sessionId + "/turn-1/" + name
+    }]
+  }, null, 2) + "\n";
+
+  // (a) storeRoot: "workspace" 回退开关 —— 桶仍在旧位置,storedAt 也是旧格式。
+  const h = harness({ aiReview: { enabled: false }, storeRoot: "workspace" }, "h18a");
+  await rm(h.root, { recursive: true, force: true }); await mkdir(h.root, { recursive: true });
+  h.store === join(h.root, ".dsh-scratch-trash")
+    ? ok("storeRoot=workspace 把存储根放回工作区内(回退开关有效)")
+    : bad("回退开关", h.store);
+  const legacyA = join(h.root, ".dsh-scratch-trash", h.session.id, "turn-1");
+  await mkdir(legacyA, { recursive: true });
+  await writeFile(join(legacyA, "old_thing.mjs"), "legacy-body", "utf8");
+  await writeFile(join(legacyA, "manifest.json"), legacyManifest(h.session.id, "old_thing.mjs", h.root), "utf8");
+  const backA = await toolOf(h, "scratch_restore").execute({ workspace: h.root }, {});
+  backA.restored.length === 1
+    ? ok("回退模式下旧格式条目被认出并还原(没有报源缺失)")
+    : bad("旧格式回落", JSON.stringify(backA));
+  existsSync(join(h.root, "old_thing.mjs"))
+    ? ok("文件回到工作区原路径")
+    : bad("还原位置", "没回到工作区");
+  !existsSync(join(legacyA, "old_thing.mjs"))
+    ? ok("旧位置已搬空")
+    : bad("旧位置残留", "源还在");
+
+  // (b) 桶被手工搬进新存储根、但 storedAt 没改写 —— 回落必须按工作区解析。
+  const h2 = harness({ aiReview: { enabled: false } }, "h18b");
+  await rm(h2.root, { recursive: true, force: true }); await mkdir(h2.root, { recursive: true });
+  const bucketB = join(h2.store, h2.session.id, "turn-1");
+  const oldHomeB = join(h2.root, ".dsh-scratch-trash", h2.session.id, "turn-1");
+  await mkdir(bucketB, { recursive: true });
+  await mkdir(oldHomeB, { recursive: true });
+  // manifest 在新存储根里,文件还留在旧位置(正是 storedAt 回落要处理的情形)。
+  await writeFile(join(oldHomeB, "moved_thing.mjs"), "moved-body", "utf8");
+  await writeFile(join(bucketB, "manifest.json"), legacyManifest(h2.session.id, "moved_thing.mjs", h2.root), "utf8");
+  const backB = await toolOf(h2, "scratch_restore").execute({ workspace: h2.root }, {});
+  backB.restored.length === 1
+    ? ok("桶在新位置、storedAt 指旧位置时,回落按工作区解析成功")
+    : bad("回落解析", JSON.stringify(backB));
+  existsSync(join(h2.root, "moved_thing.mjs"))
+    ? ok("文件被正确搬回工作区")
+    : bad("还原位置", "没回到工作区");
+}
+
 for (const root of ROOTS) await rm(root, { recursive: true, force: true });
+for (const store of STORES) await rm(store, { recursive: true, force: true });
+// Best-effort: drop the shared parent too, but only while it is empty, so a real
+// store living there is never at risk.
+try { await rmdir(dirname(STORES[0])); } catch {}
 
 console.log("\n" + (fail === 0 ? "ALL PASS (" + pass + ")" : pass + " passed, " + fail + " FAILED"));
 process.exit(fail === 0 ? 0 : 1);

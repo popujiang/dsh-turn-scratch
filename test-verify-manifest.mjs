@@ -106,6 +106,28 @@ console.log("[4] 值变 + 非法:reviewed 2->3(合法类型值变) 且 outcome �
 	check("报告 FAIL 且分项计数正确", r.out.includes("FAIL  缺失 0 / 值变 1 / 非法 1"), r.out.trim().split("\n").pop());
 }
 
+console.log("");
+console.log("[5] origin/moved 枚举:合法值放行,非法值点名");
+{
+	// A valid value for a newly-added optional field is an addition, not a regression.
+	const okFixture = clone();
+	okFixture.items[0].origin = "workspace";
+	const r1 = run(writeFixture("case5-origin-ok.json", okFixture));
+	check("item.origin=workspace 放行", r1.code === 0, "实际 exit=" + r1.code);
+
+	const badFixture = clone();
+	badFixture.items[0].origin = "somewhere-else";
+	const r2 = run(writeFixture("case5-origin-bad.json", badFixture));
+	check("exit=1", r2.code === 1, "实际 exit=" + r2.code);
+	check("报出非法", r2.out.includes("非法"), "");
+	check("指名 origin 并给出允许值", r2.out.includes("origin") && r2.out.includes("workspace"), r2.out.split("\n").filter((l) => l.trim().startsWith("! ")).join(" | "));
+
+	const badMoved = clone();
+	badMoved.items[2].moved = "teleport";
+	const r3 = run(writeFixture("case5-moved-bad.json", badMoved));
+	check("moved 非法值同样被抓", r3.code === 1 && r3.out.includes("moved"), r3.out.split("\n").filter((l) => l.trim().startsWith("! ")).join(" | "));
+}
+
 rmSync(WORK, { recursive: true, force: true });
 
 console.log("");
