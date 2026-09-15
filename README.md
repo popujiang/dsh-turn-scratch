@@ -14,7 +14,7 @@
 
 ## 安装
 
-dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.3.0"
+dsh plugin --profile desktop add "git+https://github.com/popujiang/dsh-turn-scratch.git#v0.3.1"
 
 ## “小而美”
 
@@ -130,7 +130,7 @@ workDir: ""
 
 模型只能还原、不能删除，最后文件的生杀大权在你手里。
 
-三套测试共 141 项断言全绿。最坏的情况是文件被隔离，随时可还原，请放心食用。
+三套测试共 146 项断言全绿。最坏的情况是文件被隔离，随时可还原，请放心食用。
 
 ## 其他
 

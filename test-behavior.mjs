@@ -698,6 +698,34 @@ console.log("\n[18] 旧格式 storedAt(工作区相对)仍可还原");
     : bad("还原位置", "没回到工作区");
 }
 
+// ─────────────────────────────────────────────────────────────
+// 工作区指纹必须是一个纯粹的函数:同一个工作区怎么拼写都得到同一个存储,
+// 不同工作区即使重名也绝不共享。
+console.log("\n[19] 工作区指纹:大小写归一、重名不撞车");
+{
+  const { workspaceKey } = await import(pathToFileURL(PLUGIN).href);
+  const a = workspaceKey("D:/share");
+  const b = workspaceKey("d:/SHARE");
+  a === b
+    ? ok("大小写不同但同一工作区 -> 同一指纹(" + a + ")")
+    : bad("大小写归一", a + " vs " + b);
+  const c = workspaceKey("D:/other/share");
+  a !== c
+    ? ok("同名不同路径 -> 不同指纹,不共享存储")
+    : bad("重名撞车", "两者都是 " + a);
+  /^[A-Za-z0-9._-]+$/.test(a)
+    ? ok("指纹只含文件系统安全字符")
+    : bad("指纹字符", a);
+  const deep = workspaceKey("D:/a/very/deep/树/Project Name!!");
+  /^[A-Za-z0-9._-]+$/.test(deep)
+    ? ok("非 ASCII / 空格 / 标点都被收敛(" + deep + ")")
+    : bad("指纹收敛", deep);
+  const root = workspaceKey("D:/");
+  root.length > 0 && /^[A-Za-z0-9._-]+$/.test(root)
+    ? ok("盘根这种退化输入也有合法指纹(" + root + ")")
+    : bad("退化输入", root);
+}
+
 for (const root of ROOTS) await rm(root, { recursive: true, force: true });
 for (const store of STORES) await rm(store, { recursive: true, force: true });
 // Best-effort: drop the shared parent too, but only while it is empty, so a real
